@@ -12,7 +12,7 @@ const bodyParser = require('body-parser');
 const lodash = require('lodash');
 const ejs = require('ejs');
 const mongoose = require('mongoose');
-const md5 = require('md5');
+const bcrypt = require('bcryptjs');
 
 
 
@@ -54,17 +54,16 @@ const userSchema = new mongoose.Schema({
 });
 
 
-
-
 const User = new mongoose.model('User', userSchema);
 
 
 
 //-------------------------------------------------------- //
-//      Create Mongoose Entries
+//      Password Hashing
 // --------------------------------------------------------//
 
-
+// Number of salt rounds
+const saltRounds = 8;
 
 
 //-------------------------------------------------------- //
@@ -99,17 +98,23 @@ app.get('/login', function(req, res){
 
 app.post('/register', function(req, res){
 
-  const newUser = new User({
-    email: req.body.username ,
-    password: md5(req.body.password)
-  });
+  // Encrypt our password using bcrypt
+  bcrypt.hash(req.body.password, saltRounds, function(err, hash) {
 
-  newUser.save(function(err){
-    if (err){
-      console.log(err);
-    }else{
-      res.render('secrets');
-    }
+    // Create new DB entry
+    const newUser = new User({
+      email: req.body.username ,
+      password: hash
+    });
+
+    // Save the new entry
+    newUser.save(function(err){
+      if (err){
+        console.log(err);
+      }else{
+        res.render('secrets');
+      }
+    });
   });
 });
 
@@ -117,17 +122,24 @@ app.post('/register', function(req, res){
 
 app.post('/login', function(req, res){
 
+  // Save the sign-in details
   const username = req.body.username;
-  const password = md5(req.body.password);
+  const password = req.body.password;
 
+
+  // Find the user
   User.findOne({email:username}, function(err, foundUser){
     if(err){
       console.log(err);
-    }else{
+    }
+      // Check if the password matches
+      else{
       if(foundUser){
-        if (foundUser.password === password){
-          res.render('secrets');
-        }
+        bcrypt.compare(password, foundUser.password, function(err, result) {
+          if(result === true){
+            res.render('secrets');
+          }
+        });
       }
     }
   });
