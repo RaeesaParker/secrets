@@ -12,7 +12,9 @@ const bodyParser = require('body-parser');
 const lodash = require('lodash');
 const ejs = require('ejs');
 const mongoose = require('mongoose');
-const bcrypt = require('bcryptjs');
+const session = require('express-session');
+const passport = require('passport');
+const passportLocalMongoose = require('passport-local-mongoose');
 
 
 
@@ -24,6 +26,19 @@ const app = express();
 app.use(bodyParser.urlencoded({extended:true}));
 app.use(express.static('public'));
 app.set('view engine', 'ejs');
+
+
+// Set the cookies and passport by using a session
+app.use(session({
+  secret: 'Our little secret',
+  resave: false,
+  saveUninitialized: false,
+  //cookie: { secure: true }
+}));
+
+// Initialise passport and the session
+app.use(passport.initialize());
+app.use(passport.session());
 
 
 
@@ -54,7 +69,18 @@ const userSchema = new mongoose.Schema({
 });
 
 
+// Plugin passport to hash and salt passwords
+userSchema.plugin(passportLocalMongoose);
+
 const User = new mongoose.model('User', userSchema);
+
+
+// Passport local configuration
+passport.use(User.createStrategy());
+
+// Use passport to serialize and deserialize User
+passport.serializeUser(User.serializeUser());
+passport.deserializeUser(User.deserializeUser());
 
 
 
@@ -62,8 +88,7 @@ const User = new mongoose.model('User', userSchema);
 //      Password Hashing
 // --------------------------------------------------------//
 
-// Number of salt rounds
-const saltRounds = 8;
+
 
 
 //-------------------------------------------------------- //
@@ -87,8 +112,21 @@ app.get('/login', function(req, res){
 
 
 
+app.get('/secrets', function(req, res){
+  // Check if user is authenticated
+  if (req.isAuthenticated()){
+    res.render('secrets');
+  }else {
+    res.redirect('/login');
+  }
+});
 
 
+// Deauthenticate User
+app.get('/logout', function(req, res){
+  req.logout();
+  res.redirect('/');
+});
 
 
 
@@ -98,23 +136,16 @@ app.get('/login', function(req, res){
 
 app.post('/register', function(req, res){
 
-  // Encrypt our password using bcrypt
-  bcrypt.hash(req.body.password, saltRounds, function(err, hash) {
-
-    // Create new DB entry
-    const newUser = new User({
-      email: req.body.username ,
-      password: hash
-    });
-
-    // Save the new entry
-    newUser.save(function(err){
-      if (err){
-        console.log(err);
-      }else{
-        res.render('secrets');
-      }
-    });
+  // Register the user
+  User.register({username: req.body.username}, req.body.password, function(err, user){
+    if (err){
+      console.log(err);
+      res.render('/register');
+    }else{
+      passport.authenticate('local')(req, res, function(){
+        res.redirect('/secrets');
+      })
+    }
   });
 });
 
@@ -122,25 +153,18 @@ app.post('/register', function(req, res){
 
 app.post('/login', function(req, res){
 
-  // Save the sign-in details
-  const username = req.body.username;
-  const password = req.body.password;
+  const user = new User({
+    username:req.body.username,
+    password:req.body.password
+  });
 
-
-  // Find the user
-  User.findOne({email:username}, function(err, foundUser){
-    if(err){
+  req.login(user, function(err) {
+    if (err){
       console.log(err);
-    }
-      // Check if the password matches
-      else{
-      if(foundUser){
-        bcrypt.compare(password, foundUser.password, function(err, result) {
-          if(result === true){
-            res.render('secrets');
-          }
-        });
-      }
+    }else{
+      passport.authenticate('local')(req, res, function(){
+        res.redirect('/secrets');
+      })
     }
   });
 });
